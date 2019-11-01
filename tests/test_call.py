@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 import pytest
 
@@ -25,6 +26,11 @@ class MyCounterService():
     @expose()
     async def invalid(self):
         raise Exception("MyException")
+
+    @expose()
+    async def sleep_echo(self, arg):
+        time.sleep(0.5)
+        return arg
 
 
 def test_call(test_env, port):
@@ -139,3 +145,27 @@ def test_call_no_response(test_env, port):
     test_env.run(main())
 
     assert service.counter == 20
+
+
+def test_close_wait_for_transit(test_env, port):
+    service = MyCounterService()
+
+    async def handle(conn):
+        await conn.serve(service)
+
+    test_env.start_server(handle)
+
+    async def main():
+        conn = Connection(await asyncio.open_connection("localhost", port))
+        conn.start_service()
+        conn.set_nr_error_handle(lambda e: e)
+
+        futs = [
+            asyncio.ensure_future(conn.call("sleep_echo", 5)),
+            asyncio.ensure_future(conn.call_no_response("sleep_echo", 6))
+        ]
+        await asyncio.sleep(0.00001)
+        await conn.close()
+        assert await asyncio.gather(*futs) == [5, None]
+
+    test_env.run(main())

@@ -28,7 +28,12 @@ class Connection:
     def set_nr_error_handle(self, callback):
         self.nr_error_handle = callback
 
-    async def close(self):
+    async def close(self, timeout=None):
+        await self.writer.drain()
+        for fut in asyncio.as_completed(self.running_calls.values(), timeout=timeout):
+            await fut
+        assert len(self.running_calls) == 0
+
         self.writer.close()
         # TODO: in 3.7
         # await self.writer.wait_closed()
@@ -40,6 +45,7 @@ class Connection:
     async def call(self, method_name, *args):
         future = asyncio.Future()
         self.running_calls[self.id_counter] = future
+
         await self._send_call(method_name, args, False)
         return await future
 
@@ -47,7 +53,8 @@ class Connection:
         if self.nr_error_handle is None:
             raise Exception(
                 "No error handler set for no_response calls. "
-                "Use set_on_error_resposen_call()")
+                "Use set_nr_error_handle()")
+
         await self._send_call(method_name, args, True)
 
     def start_service(self, service=None):
